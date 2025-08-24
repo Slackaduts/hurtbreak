@@ -4,9 +4,7 @@ use hurtbreak_core::{
 };
 
 #[cfg(feature = "async")]
-use hurtbreak_core::{
-    attack::{AsyncAttack, AttackResult, Attack},
-};
+use hurtbreak_core::attack::{AsyncAttack, AttackResult};
 
 
 #[cfg(not(feature = "async"))]
