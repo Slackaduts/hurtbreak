@@ -8,14 +8,16 @@ name = "tcp-fuzzer"
 path = "src/main.rs"
 
 [features]
-default = ["tcpip"]
+default = ["tcpip", "usb", "async"]
 tcpip = ["socket2"]
-async = ["smol", "socket2"]
+usb = []
+async = ["tokio", "async-trait"]
 
 [dependencies]
 hurtbreak-derive = { path = "../hurtbreak-derive" }
 fastrand = "2.0"
 bitflags = "2.6"
 anyhow = "1.0"
-smol = { version = "2.0", optional = true }
+tokio = { version = "1.0", features = ["net", "time", "rt", "rt-multi-thread", "io-util", "macros"], optional = true }
 socket2 = { version = "0.5", optional = true }
+async-trait = { version = "0.1.89", optional = true }

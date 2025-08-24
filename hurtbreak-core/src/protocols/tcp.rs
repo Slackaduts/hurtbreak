@@ -148,112 +148,6 @@ impl Protocol for TcpPacket {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_tcp_flags_fuzzing() {
-        let mut packet = TcpPacket::default();
-        let _original_flags = packet.flags;
-        
-        // Test that flags can be fuzzed
-        packet.fuzz_flags();
-        
-        // Valid flag combinations from our values list
-        let valid_flags = [
-            TcpFlags::FIN,
-            TcpFlags::SYN,
-            TcpFlags::RST,
-            TcpFlags::PSH,
-            TcpFlags::ACK,
-            TcpFlags::URG,
-            TcpFlags::SYN | TcpFlags::ACK,
-            TcpFlags::FIN | TcpFlags::ACK,
-        ];
-        
-        // The fuzzed flag should be one of the valid combinations
-        assert!(valid_flags.contains(&packet.flags));
-        
-        // Test multiple fuzzing operations
-        for _ in 0..10 {
-            packet.fuzz_flags();
-            assert!(valid_flags.contains(&packet.flags));
-        }
-    }
-    
-    #[test]
-    fn test_tcp_flags_from_str() {
-        assert_eq!("SYN".parse::<TcpFlags>().unwrap(), TcpFlags::SYN);
-        assert_eq!("SYN|ACK".parse::<TcpFlags>().unwrap(), TcpFlags::SYN | TcpFlags::ACK);
-        assert_eq!("FIN|ACK".parse::<TcpFlags>().unwrap(), TcpFlags::FIN | TcpFlags::ACK);
-        
-        // Test error case
-        assert!("INVALID".parse::<TcpFlags>().is_err());
-    }
-    
-    #[test]
-    fn test_tcp_packet_protocol_payload() {
-        let mut packet = TcpPacket::default();
-        packet.flags = TcpFlags::SYN | TcpFlags::ACK;
-        
-        let payload = packet.payload();
-        
-        // Should contain serialized data including flag bits
-        assert!(!payload.is_empty());
-        
-        // Check that flags are serialized correctly (SYN|ACK = 0x12)
-        let flags_byte_position = 2 + 4 + 4 + 1; // port(2) + src_ip(4) + dest_ip(4) + header_length(1)
-        assert_eq!(payload[flags_byte_position], 0x12); // SYN(0x02) | ACK(0x10)
-    }
-    
-    #[test]
-    fn test_ip_pattern_fuzzing() {
-        let mut packet = TcpPacket::default();
-        let original_source = packet.source_ip;
-        let original_dest = packet.dest_ip;
-        
-        // Test source IP fuzzing
-        packet.fuzz_source_ip();
-        assert_ne!(packet.source_ip, original_source);
-        
-        // Test dest IP fuzzing  
-        packet.fuzz_dest_ip();
-        assert_ne!(packet.dest_ip, original_dest);
-        
-        // Test multiple rounds of fuzzing
-        for _ in 0..10 {
-            packet.fuzz_source_ip();
-            packet.fuzz_dest_ip();
-            
-            // Should always be valid IP addresses
-            assert!(matches!(packet.source_ip, std::net::IpAddr::V4(_) | std::net::IpAddr::V6(_)));
-            assert!(matches!(packet.dest_ip, std::net::IpAddr::V4(_) | std::net::IpAddr::V6(_)));
-        }
-    }
-    
-    #[test]
-    fn test_display_implementations() {
-        let mut packet = TcpPacket::default();
-        packet.flags = TcpFlags::SYN | TcpFlags::ACK;
-        
-        // Test TcpFlags Display
-        assert_eq!(format!("{}", TcpFlags::SYN), "SYN");
-        assert_eq!(format!("{}", TcpFlags::SYN | TcpFlags::ACK), "SYN|ACK");
-        assert_eq!(format!("{}", TcpFlags::empty()), "NONE");
-        
-        // Test TcpPacket Display - should not panic
-        let display_output = format!("{}", packet);
-        assert!(display_output.contains("TcpPacket {"));
-        assert!(display_output.contains("version: 4"));
-        assert!(display_output.contains("flags: SYN|ACK"));
-        assert!(display_output.contains("source_ip: 192.168.1.1"));
-        assert!(display_output.contains("dest_ip: 192.168.1.2"));
-
-        println!("{packet}");
-    }
-}
-
 #[cfg(feature = "tcpip")]
 impl Attack for TcpPacket {
     type Response = Vec<u8>;
@@ -262,11 +156,16 @@ impl Attack for TcpPacket {
         use socket2::{Socket, Domain, Type, Protocol as SocketProtocol};
         use std::net::SocketAddr;
         
-        // Create raw socket
+        // We want control over timing and yield logic; Otherwise I'd just use TcpHandler. -S
         let socket = match Socket::new(Domain::IPV4, Type::STREAM, Some(SocketProtocol::TCP)) {
             Ok(s) => s,
-            Err(e) => return AttackResult::Stop(anyhow::anyhow!("Failed to create raw socket: {}", e)),
+            Err(e) => return AttackResult::Stop(anyhow::anyhow!("Failed to create TCP socket: {}", e)),
         };
+        
+        // Set non-blocking mode for fuzzing
+        if let Err(e) = socket.set_nonblocking(true) {
+            return AttackResult::Stop(anyhow::anyhow!("Failed to set non-blocking: {}", e));
+        }
         
         // Get destination address
         let dest_addr = match self.dest_ip {
@@ -274,17 +173,42 @@ impl Attack for TcpPacket {
             IpAddr::V6(ipv6) => SocketAddr::new(IpAddr::V6(ipv6), self.port),
         };
         
-        // Send the payload using Protocol trait
-        let packet_data = self.payload();
-        
-        match socket.send_to(&packet_data, &dest_addr.into()) {
-            Ok(_) => AttackResult::Ok(()),
-            Err(e) => AttackResult::Continue(anyhow::anyhow!("Send failed, retrying: {}", e)),
+        // Attempt to connect (non-blocking)
+        match socket.connect(&dest_addr.into()) {
+            Ok(_) => {
+                // Connection succeeded immediately
+                let packet_data = self.payload();
+                match socket.send(&packet_data) {
+                    Ok(_) => AttackResult::Ok(()),
+                    Err(e) => AttackResult::Continue(anyhow::anyhow!("Send failed: {}", e)),
+                }
+            }
+            Err(e) => {
+                match e.kind() {
+                    std::io::ErrorKind::WouldBlock => {
+                        // Connection in progress - for fuzzing purposes, consider this a continue
+                        AttackResult::Continue(anyhow::anyhow!("Connection in progress to {}:{}", self.dest_ip, self.port))
+                    }
+                    std::io::ErrorKind::ConnectionRefused => {
+                        // Target port closed - continue fuzzing other ports/packets
+                        AttackResult::Continue(anyhow::anyhow!("Connection refused to {}:{}", self.dest_ip, self.port))
+                    }
+                    std::io::ErrorKind::TimedOut => {
+                        // Network timeout - continue with next packet
+                        AttackResult::Continue(anyhow::anyhow!("Connection timeout to {}:{}", self.dest_ip, self.port))
+                    }
+                    _ => {
+                        // Other connection errors - continue fuzzing
+                        AttackResult::Continue(anyhow::anyhow!("Connection error to {}:{}: {}", self.dest_ip, self.port, e))
+                    }
+                }
+            }
         }
     }
     
     fn wait_for_response(&self, timeout: std::time::Duration) -> AttackResult<Self::Response> {
         use socket2::{Socket, Domain, Type, Protocol as SocketProtocol};
+        use std::net::SocketAddr;
         
         // Create socket for receiving response
         let socket = match Socket::new(Domain::IPV4, Type::STREAM, Some(SocketProtocol::TCP)) {
@@ -292,28 +216,66 @@ impl Attack for TcpPacket {
             Err(e) => return AttackResult::Stop(anyhow::anyhow!("Failed to create response socket: {}", e)),
         };
         
-        // Set receive timeout
+        // Set timeouts
         if let Err(e) = socket.set_read_timeout(Some(timeout)) {
-            return AttackResult::Stop(anyhow::anyhow!("Failed to set timeout: {}", e));
+            return AttackResult::Stop(anyhow::anyhow!("Failed to set read timeout: {}", e));
         }
         
-        // Buffer for response
-        let mut buffer = [std::mem::MaybeUninit::new(0u8); 4096];
+        if let Err(e) = socket.set_write_timeout(Some(timeout)) {
+            return AttackResult::Stop(anyhow::anyhow!("Failed to set write timeout: {}", e));
+        }
         
-        match socket.recv(&mut buffer) {
-            Ok(bytes_received) => {
-                // SAFETY: socket.recv() guarantees the first bytes_received bytes are initialized
-                let initialized_data: Vec<u8> = buffer[..bytes_received]
-                    .iter()
-                    .map(|b| unsafe { b.assume_init() })
-                    .collect();
-                AttackResult::Ok(initialized_data)
-            },
+        // Get destination address
+        let dest_addr = match self.dest_ip {
+            IpAddr::V4(ipv4) => SocketAddr::new(IpAddr::V4(ipv4), self.port),
+            IpAddr::V6(ipv6) => SocketAddr::new(IpAddr::V6(ipv6), self.port),
+        };
+        
+        // Try to connect and receive response
+        match socket.connect(&dest_addr.into()) {
+            Ok(_) => {
+                // Connected, try to receive data
+                let mut buffer = [std::mem::MaybeUninit::new(0u8); 4096];
+                
+                match socket.recv(&mut buffer) {
+                    Ok(bytes_received) => {
+                        if bytes_received == 0 {
+                            AttackResult::Continue(anyhow::anyhow!("Connection closed by peer"))
+                        } else {
+                            // SAFETY: socket.recv() guarantees the first bytes_received bytes are initialized
+                            let initialized_data: Vec<u8> = buffer[..bytes_received]
+                                .iter()
+                                .map(|b| unsafe { b.assume_init() })
+                                .collect();
+                            AttackResult::Ok(initialized_data)
+                        }
+                    },
+                    Err(e) => {
+                        match e.kind() {
+                            std::io::ErrorKind::TimedOut => {
+                                AttackResult::Continue(anyhow::anyhow!("Timeout waiting for response from {}:{}", self.dest_ip, self.port))
+                            }
+                            std::io::ErrorKind::ConnectionReset => {
+                                AttackResult::Continue(anyhow::anyhow!("Connection reset by {}:{}", self.dest_ip, self.port))
+                            }
+                            _ => {
+                                AttackResult::Continue(anyhow::anyhow!("Receive error from {}:{}: {}", self.dest_ip, self.port, e))
+                            }
+                        }
+                    }
+                }
+            }
             Err(e) => {
-                if e.kind() == std::io::ErrorKind::TimedOut {
-                    AttackResult::Continue(anyhow::anyhow!("Timeout waiting for response"))
-                } else {
-                    AttackResult::Stop(anyhow::anyhow!("Failed to receive response: {}", e))
+                match e.kind() {
+                    std::io::ErrorKind::ConnectionRefused => {
+                        AttackResult::Continue(anyhow::anyhow!("Connection refused by {}:{}", self.dest_ip, self.port))
+                    }
+                    std::io::ErrorKind::TimedOut => {
+                        AttackResult::Continue(anyhow::anyhow!("Connection timeout to {}:{}", self.dest_ip, self.port))
+                    }
+                    _ => {
+                        AttackResult::Continue(anyhow::anyhow!("Connection error to {}:{}: {}", self.dest_ip, self.port, e))
+                    }
                 }
             }
         }

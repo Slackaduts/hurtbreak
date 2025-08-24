@@ -1,8 +1,10 @@
 use anyhow::Result;
 use std::time::Duration;
 
-#[derive(Debug)]
-pub enum AttackResult<T> {
+#[cfg(feature = "async")]
+use async_trait::async_trait;
+
+#[derive(Debug)]pub enum AttackResult<T> {
     Ok(T),
     Continue(anyhow::Error),
     Stop(anyhow::Error),
@@ -97,8 +99,9 @@ pub trait Attack {
 }
 
 #[cfg(feature = "async")]
+#[async_trait]
 pub trait AsyncAttack {
-    type Response;
+    type Response: Send;
     
     async fn send_payload(&self, payload: &[u8]) -> AttackResult<()>;
     
