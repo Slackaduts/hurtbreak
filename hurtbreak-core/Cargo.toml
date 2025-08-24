@@ -1,0 +1,21 @@
+[package]
+name = "hurtbreak-core"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "tcp-fuzzer"
+path = "src/main.rs"
+
+[features]
+default = ["tcpip"]
+tcpip = ["socket2"]
+async = ["smol", "socket2"]
+
+[dependencies]
+hurtbreak-derive = { path = "../hurtbreak-derive" }
+fastrand = "2.0"
+bitflags = "2.6"
+anyhow = "1.0"
+smol = { version = "2.0", optional = true }
+socket2 = { version = "0.5", optional = true }

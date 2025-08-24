@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "hurtbreak-core",
+    "hurtbreak-derive"
+]
+resolver = "2"
