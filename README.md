@@ -22,9 +22,9 @@ hurtbreak launch tcp --field port=443 --field host=192.168.1.1 --max-tries 1000
 ```
 
 ## Immediate plans
-- Add support for hardware RNG
+- Add support for hardware (Q)RNG
 - Stop using fastrand crate and make the randomization itself modular
-
+- Concurrent requests leveraging our AsyncAttack struct
 
 ## Future plans
 - Support for `#![no_std]`
