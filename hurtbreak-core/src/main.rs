@@ -3,6 +3,9 @@ use hurtbreak_core::{
     Fuzzable, Protocol,
 };
 
+#[cfg(feature = "usb")]
+use hurtbreak_core::protocols::usb::UsbDeviceHandle;
+
 #[cfg(feature = "async")]
 use hurtbreak_core::attack::{AsyncAttack, AttackResult};
 
@@ -13,7 +16,28 @@ use hurtbreak_core::attack::{Attack, AttackResult};
 #[cfg(feature = "async")]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    println!("🔌 Starting Async USB Fuzzing Attack");
+    println!("Starting Async USB Fuzzing Attack");
+    
+    // Enumerate USB devices
+    #[cfg(feature = "usb")]
+    {
+        println!("Enumerating USB devices...");
+        match UsbDeviceHandle::enumerate_devices() {
+            Ok(devices) => {
+                println!("Found {} USB devices:", devices.len());
+                for (i, device) in devices.iter().enumerate() {
+                    println!("  {}: Bus {} Address {} - {} [{:04X}:{:04X}] Class: {:02X}h",
+                             i + 1, device.bus, device.address, device.description,
+                             device.vendor_id, device.product_id, device.device_class);
+                }
+                println!();
+            }
+            Err(e) => {
+                println!("Warning: Failed to enumerate USB devices: {}", e);
+                println!("Proceeding with fuzzing using simulated mode...");
+            }
+        }
+    }
     
     // Create initial USB packet targeting device 0 (default address)
     let mut packet = UsbPacket {
@@ -59,7 +83,7 @@ async fn main() -> anyhow::Result<()> {
                     
                     attempt += 1;
                     println!("\n--- USB Attack Attempt {} ---", attempt);
-                    println!("🎯 Targeting Device: {} | Endpoint: {} | Speed: {} | PID: {}", 
+                    println!("Targeting Device: {} | Endpoint: {} | Speed: {} | PID: {}", 
                              device_addr, endpoint, speed, pid);
                     
                     // Configure packet for this attack iteration
@@ -97,6 +121,9 @@ async fn main() -> anyhow::Result<()> {
                     packet.speed = *speed;
                     packet.pid = *pid;
                     
+                    // Truncate payload to fit within packet size limits based on speed
+                    packet.truncate_payload_to_fit();
+                    
                     println!("Fuzzed USB packet:");
                     println!("{}", packet);
                     
@@ -108,23 +135,23 @@ async fn main() -> anyhow::Result<()> {
                     match AsyncAttack::execute_attack(&packet, &wire_payload).await {
                         AttackResult::Ok(response) => {
                             successful_attacks += 1;
-                            println!("✅ USB Attack succeeded! Received {} bytes response", response.len());
+                            println!("USB Attack succeeded! Received {} bytes response", response.len());
                             println!("Response preview: {:02x?}", &response[..response.len().min(32)]);
                             
                             // Analyze USB response
                             if !response.is_empty() {
                                 match response[0] {
-                                    0x02 => println!("   📨 Received ACK handshake"),
-                                    0x0A => println!("   🚫 Received NAK handshake"),
-                                    0x0E => println!("   🛑 Received STALL handshake"),
-                                    0x06 => println!("   ⏸️  Received NYET handshake"),
+                                    0x02 => println!("   Received ACK handshake"),
+                                    0x0A => println!("   Received NAK handshake"),
+                                    0x0E => println!("   Received STALL handshake"),
+                                    0x06 => println!("   Received NYET handshake"),
                                     _ => {
                                         if response.len() >= 18 && response[0] == 0x12 && response[1] == 0x01 {
-                                            println!("   📋 Received Device Descriptor!");
+                                            println!("   Received Device Descriptor!");
                                             println!("      USB Version: {}.{}", response[3], response[2]);
                                             println!("      Max Packet Size: {}", response[7]);
                                         } else {
-                                            println!("   📦 Received custom USB data");
+                                            println!("   Received custom USB data");
                                         }
                                     }
                                 }
@@ -134,11 +161,11 @@ async fn main() -> anyhow::Result<()> {
                             tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
                         }
                         AttackResult::Continue(err) => {
-                            println!("⚠️  USB Attack continuing: {}", err);
+                            println!("WARNING: USB Attack continuing: {}", err);
                             println!("   Will try next USB device/endpoint combination...");
                         }
                         AttackResult::Stop(err) => {
-                            println!("❌ USB Attack stopped: {}", err);
+                            println!("ERROR: USB Attack stopped: {}", err);
                             println!("   Critical USB error encountered");
                             break;
                         }
@@ -152,10 +179,10 @@ async fn main() -> anyhow::Result<()> {
     }
     
     if attempt >= max_attempts {
-        println!("\n🔄 Reached maximum attempts ({}), stopping USB fuzzing", max_attempts);
+        println!("\nReached maximum attempts ({}), stopping USB fuzzing", max_attempts);
     }
     
-    println!("\n📊 USB Fuzzing Attack Summary:");
+    println!("\nUSB Fuzzing Attack Summary:");
     println!("   Target Info: {}", AsyncAttack::get_target_info(&packet));
     println!("   Total Attempts: {}", attempt);
     println!("   Successful Attacks: {}", successful_attacks);
@@ -172,7 +199,28 @@ async fn main() -> anyhow::Result<()> {
 
 #[cfg(not(feature = "async"))]
 fn main() -> anyhow::Result<()> {
-    println!("🔌 Starting USB Fuzzing Attack (Synchronous)");
+    println!("Starting USB Fuzzing Attack (Synchronous)");
+    
+    // Enumerate USB devices
+    #[cfg(feature = "usb")]
+    {
+        println!("Enumerating USB devices...");
+        match UsbDeviceHandle::enumerate_devices() {
+            Ok(devices) => {
+                println!("Found {} USB devices:", devices.len());
+                for (i, device) in devices.iter().enumerate() {
+                    println!("  {}: Bus {} Address {} - {} [{:04X}:{:04X}] Class: {:02X}h",
+                             i + 1, device.bus, device.address, device.description,
+                             device.vendor_id, device.product_id, device.device_class);
+                }
+                println!();
+            }
+            Err(e) => {
+                println!("Warning: Failed to enumerate USB devices: {}", e);
+                println!("Proceeding with fuzzing using simulated mode...");
+            }
+        }
+    }
     
     // Create initial USB packet targeting device 0 (default address)
     let mut packet = UsbPacket {
@@ -215,7 +263,7 @@ fn main() -> anyhow::Result<()> {
                 
                 attempt += 1;
                 println!("\n--- USB Attack Attempt {} ---", attempt);
-                println!("🎯 Targeting Device: {} | Endpoint: {} | PID: {}", 
+                println!("Targeting Device: {} | Endpoint: {} | PID: {}", 
                          device_addr, endpoint, pid);
                 
                 // Configure packet for this attack iteration
@@ -231,6 +279,9 @@ fn main() -> anyhow::Result<()> {
                 packet.endpoint = *endpoint;
                 packet.pid = *pid;
                 
+                // Truncate payload to fit within packet size limits based on speed
+                packet.truncate_payload_to_fit();
+                
                 println!("Fuzzed USB packet:");
                 println!("{}", packet);
                 
@@ -242,15 +293,15 @@ fn main() -> anyhow::Result<()> {
                 match Attack::execute_attack(&packet, &wire_payload) {
                     AttackResult::Ok(response) => {
                         successful_attacks += 1;
-                        println!("✅ USB Attack succeeded! Received {} bytes response", response.len());
+                        println!("SUCCESS: USB Attack succeeded! Received {} bytes response", response.len());
                         println!("Response preview: {:02x?}", &response[..response.len().min(32)]);
                     }
                     AttackResult::Continue(err) => {
-                        println!("⚠️  USB Attack continuing: {}", err);
+                        println!("WARNING: USB Attack continuing: {}", err);
                         println!("   Will try next USB device/endpoint combination...");
                     }
                     AttackResult::Stop(err) => {
-                        println!("❌ USB Attack stopped: {}", err);
+                        println!("ERROR: USB Attack stopped: {}", err);
                         println!("   Critical USB error encountered");
                         break;
                     }
@@ -260,10 +311,10 @@ fn main() -> anyhow::Result<()> {
     }
     
     if attempt >= max_attempts {
-        println!("\n🔄 Reached maximum attempts ({}), stopping USB fuzzing", max_attempts);
+        println!("\nReached maximum attempts ({}), stopping USB fuzzing", max_attempts);
     }
     
-    println!("\n📊 USB Fuzzing Attack Summary:");
+    println!("\nUSB Fuzzing Attack Summary:");
     println!("   Target Info: {}", Attack::get_target_info(&packet));
     println!("   Total Attempts: {}", attempt);
     println!("   Successful Attacks: {}", successful_attacks);
@@ -294,6 +345,9 @@ mod tests {
         packet.fuzz_data();
         packet.fuzz_speed();
         
+        // Test payload truncation
+        packet.truncate_payload_to_fit();
+        
         // Verify we can get wire format
         let payload = packet.payload();
         assert!(!payload.is_empty());
@@ -302,11 +356,89 @@ mod tests {
         let display_str = format!("{}", packet);
         assert!(display_str.contains("UsbPacket"));
     }
+    
+    #[test]
+    fn test_payload_truncation() {
+        // Test Low speed (8 byte limit)
+        let mut packet = UsbPacket {
+            speed: UsbSpeed::Low,
+            pid: UsbPid::DATA0,
+            data: vec![0; 100], // Much more than 8 bytes
+            ..Default::default()
+        };
+        
+        packet.truncate_payload_to_fit();
+        let expected_max = 8_usize.saturating_sub(packet.calculate_packet_overhead());
+        assert_eq!(packet.data.len(), expected_max);
+        
+        // Test Full speed (64 byte limit)
+        let mut packet = UsbPacket {
+            speed: UsbSpeed::Full,
+            pid: UsbPid::DATA1,
+            data: vec![0; 100], // More than 64 bytes
+            ..Default::default()
+        };
+        
+        packet.truncate_payload_to_fit();
+        let expected_max = 64_usize.saturating_sub(packet.calculate_packet_overhead());
+        assert_eq!(packet.data.len(), expected_max);
+        
+        // Test High speed (512 byte limit)
+        let mut packet = UsbPacket {
+            speed: UsbSpeed::High,
+            pid: UsbPid::DATA0,
+            data: vec![0; 1000], // More than 512 bytes
+            ..Default::default()
+        };
+        
+        packet.truncate_payload_to_fit();
+        let expected_max = 512_usize.saturating_sub(packet.calculate_packet_overhead());
+        assert_eq!(packet.data.len(), expected_max);
+        
+        // Test Super speed (1024 byte limit)
+        let mut packet = UsbPacket {
+            speed: UsbSpeed::Super,
+            pid: UsbPid::DATA1,
+            data: vec![0; 2000], // More than 1024 bytes
+            ..Default::default()
+        };
+        
+        packet.truncate_payload_to_fit();
+        let expected_max = 1024_usize.saturating_sub(packet.calculate_packet_overhead());
+        assert_eq!(packet.data.len(), expected_max);
+    }
+    
+    #[test]
+    fn test_packet_overhead_calculation() {
+        // Test DATA packet overhead
+        let data_packet = UsbPacket {
+            pid: UsbPid::DATA0,
+            ..Default::default()
+        };
+        // sync(1) + pid(1) + addr/ep(2) + crc16(2) = 6 bytes
+        assert_eq!(data_packet.calculate_packet_overhead(), 6);
+        
+        // Test SETUP packet overhead
+        let setup_packet = UsbPacket {
+            pid: UsbPid::SETUP,
+            ..Default::default()
+        };
+        // sync(1) + pid(1) + addr/ep(2) + setup_data(8) + crc5(1) = 13 bytes
+        assert_eq!(setup_packet.calculate_packet_overhead(), 13);
+        
+        // Test SOF packet overhead
+        let sof_packet = UsbPacket {
+            pid: UsbPid::SOF,
+            ..Default::default()
+        };
+        // sync(1) + pid(1) + addr/ep(2) + frame_num(2) + crc5(1) = 7 bytes
+        assert_eq!(sof_packet.calculate_packet_overhead(), 7);
+    }
 
     #[cfg(feature = "async")]
     #[tokio::test]
     async fn test_full_async_attack_flow() {
-        println!("🚀 Starting Full Async USB Attack Flow Test");
+        println!("Starting Full Async USB Attack Flow Test");
         
         // Create initial USB packet targeting device 0
         let mut packet = UsbPacket {
@@ -346,6 +478,9 @@ mod tests {
             packet.device_address = 0;
             packet.endpoint = 0;
             
+            // Truncate payload to fit within packet size limits based on speed
+            packet.truncate_payload_to_fit();
+            
             println!("Fuzzed packet: {}", packet);
             
             // Get wire format payload
@@ -355,13 +490,13 @@ mod tests {
             // Send payload and wait for response asynchronously
             match packet.send_payload(&wire_payload).await {
                 AttackResult::Ok(()) => {
-                    println!("✅ Payload sent successfully");
+                    println!("SUCCESS: Payload sent successfully");
                     
                     // Now wait for response
                     let timeout = std::time::Duration::from_millis(1000);
                     match packet.wait_for_response(timeout).await {
                         AttackResult::Ok(response) => {
-                            println!("📨 Received response: {} bytes", response.len());
+                            println!("Received response: {} bytes", response.len());
                             
                             // Print response preview
                             if !response.is_empty() {
@@ -373,45 +508,45 @@ mod tests {
                             // Validate the response
                             match packet.validate_response(&response).await {
                                 AttackResult::Ok(()) => {
-                                    println!("✅ Response validation successful - ASYNC ATTACK SUCCESS!");
+                                    println!("SUCCESS: Response validation successful - ASYNC ATTACK SUCCESS!");
                                     success_count += 1;
                                     break; // Success - exit the loop
                                 }
                                 AttackResult::Continue(err) => {
-                                    println!("⚠️  Response validation says continue: {}", err);
+                                    println!("WARNING: Response validation says continue: {}", err);
                                     continue_count += 1;
                                 }
                                 AttackResult::Stop(err) => {
-                                    println!("❌ Response validation says stop: {}", err);
+                                    println!("ERROR: Response validation says stop: {}", err);
                                     stop_count += 1;
                                     break; // Stop - exit the loop
                                 }
                             }
                         }
                         AttackResult::Continue(err) => {
-                            println!("⚠️  Response wait continuing: {}", err);
+                            println!("WARNING: Response wait continuing: {}", err);
                             continue_count += 1;
                         }
                         AttackResult::Stop(err) => {
-                            println!("❌ Response wait stopped: {}", err);
+                            println!("ERROR: Response wait stopped: {}", err);
                             stop_count += 1;
                             break; // Stop - exit the loop
                         }
                     }
                 }
                 AttackResult::Continue(err) => {
-                    println!("⚠️  Payload send continuing: {}", err);
+                    println!("WARNING: Payload send continuing: {}", err);
                     continue_count += 1;
                 }
                 AttackResult::Stop(err) => {
-                    println!("❌ Payload send stopped: {}", err);
+                    println!("ERROR: Payload send stopped: {}", err);
                     stop_count += 1;
                     break; // Stop - exit the loop
                 }
             }
         }
         
-        println!("\n📊 Test Async Attack Summary:");
+        println!("\nTest Async Attack Summary:");
         println!("   Total iterations: {}", iteration);
         println!("   Successes: {}", success_count);
         println!("   Continues: {}", continue_count);
@@ -420,13 +555,13 @@ mod tests {
         
         // Test should pass regardless of results since we're testing the flow
         assert!(iteration > 0, "Should have run at least one iteration");
-        println!("✅ Full async attack flow test completed successfully");
+        println!("SUCCESS: Full async attack flow test completed successfully");
     }
 
     #[cfg(not(feature = "async"))]
     #[test]
     fn test_full_sync_attack_flow() {
-        println!("🚀 Starting Full Sync USB Attack Flow Test");
+        println!("Starting Full Sync USB Attack Flow Test");
         
         // Create initial USB packet targeting device 0
         let mut packet = UsbPacket {
@@ -466,6 +601,9 @@ mod tests {
             packet.device_address = 0;
             packet.endpoint = 0;
             
+            // Truncate payload to fit within packet size limits based on speed
+            packet.truncate_payload_to_fit();
+            
             println!("Fuzzed packet: {}", packet);
             
             // Get wire format payload
@@ -475,13 +613,13 @@ mod tests {
             // Send payload and wait for response synchronously
             match packet.send_payload(&wire_payload) {
                 AttackResult::Ok(()) => {
-                    println!("✅ Payload sent successfully");
+                    println!("SUCCESS: Payload sent successfully");
                     
                     // Now wait for response
                     let timeout = std::time::Duration::from_millis(1000);
                     match packet.wait_for_response(timeout) {
                         AttackResult::Ok(response) => {
-                            println!("📨 Received response: {} bytes", response.len());
+                            println!("Received response: {} bytes", response.len());
                             
                             // Print response preview
                             if !response.is_empty() {
@@ -493,45 +631,45 @@ mod tests {
                             // Validate the response
                             match packet.validate_response(&response) {
                                 AttackResult::Ok(()) => {
-                                    println!("✅ Response validation successful - SYNC ATTACK SUCCESS!");
+                                    println!("SUCCESS: Response validation successful - SYNC ATTACK SUCCESS!");
                                     success_count += 1;
                                     break; // Success - exit the loop
                                 }
                                 AttackResult::Continue(err) => {
-                                    println!("⚠️  Response validation says continue: {}", err);
+                                    println!("WARNING: Response validation says continue: {}", err);
                                     continue_count += 1;
                                 }
                                 AttackResult::Stop(err) => {
-                                    println!("❌ Response validation says stop: {}", err);
+                                    println!("ERROR: Response validation says stop: {}", err);
                                     stop_count += 1;
                                     break; // Stop - exit the loop
                                 }
                             }
                         }
                         AttackResult::Continue(err) => {
-                            println!("⚠️  Response wait continuing: {}", err);
+                            println!("WARNING: Response wait continuing: {}", err);
                             continue_count += 1;
                         }
                         AttackResult::Stop(err) => {
-                            println!("❌ Response wait stopped: {}", err);
+                            println!("ERROR: Response wait stopped: {}", err);
                             stop_count += 1;
                             break; // Stop - exit the loop
                         }
                     }
                 }
                 AttackResult::Continue(err) => {
-                    println!("⚠️  Payload send continuing: {}", err);
+                    println!("WARNING: Payload send continuing: {}", err);
                     continue_count += 1;
                 }
                 AttackResult::Stop(err) => {
-                    println!("❌ Payload send stopped: {}", err);
+                    println!("ERROR: Payload send stopped: {}", err);
                     stop_count += 1;
                     break; // Stop - exit the loop
                 }
             }
         }
         
-        println!("\n📊 Test Sync Attack Summary:");
+        println!("\nTest Sync Attack Summary:");
         println!("   Total iterations: {}", iteration);
         println!("   Successes: {}", success_count);
         println!("   Continues: {}", continue_count);
@@ -540,6 +678,6 @@ mod tests {
         
         // Test should pass regardless of results since we're testing the flow
         assert!(iteration > 0, "Should have run at least one iteration");
-        println!("✅ Full sync attack flow test completed successfully");
+        println!("SUCCESS: Full sync attack flow test completed successfully");
     }
 }

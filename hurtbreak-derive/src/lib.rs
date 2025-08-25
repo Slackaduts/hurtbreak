@@ -1,3 +1,40 @@
+//! Procedural macro for automatically deriving fuzzing functionality.
+//! 
+//! This crate provides the `#[derive(Fuzzable)]` macro that automatically generates
+//! fuzzing methods for struct fields based on their types and attributes. The generated
+//! code allows for intelligent randomization of struct fields for security testing
+//! and protocol fuzzing.
+//! 
+//! # Supported Attributes
+//! 
+//! * `#[fuzz(skip)]` - Skip this field during fuzzing
+//! * `#[fuzz(range = "min..=max")]` - Fuzz numeric fields within a range
+//! * `#[fuzz(max_len = N)]` - Fuzz Vec<u8> with maximum length N
+//! * `#[fuzz(values = "[\"val1\", \"val2\"]")]` - Choose from predefined values
+//! * `#[fuzz(pattern = "type.type", delimiter = ".")]` - Generate structured patterns
+//! * `#[fuzz]` - Use default fuzzing behavior for the field type
+//! 
+//! # Examples
+//! 
+//! ```rust,norun
+//! use hurtbreak_derive::Fuzzable;
+//! 
+//! #[derive(Fuzzable)]
+//! struct TestStruct {
+//!     #[fuzz(range = "1..=100")]
+//!     numeric_field: u32,
+//!     
+//!     #[fuzz(max_len = 256)]
+//!     data_field: Vec<u8>,
+//!     
+//!     #[fuzz(values = "[\"GET\", \"POST\", \"PUT\"]")]
+//!     method: String,
+//!     
+//!     #[fuzz(skip)]
+//!     dont_fuzz: bool,
+//! }
+//! ```
+
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::quote;
@@ -5,6 +42,66 @@ use syn::{
     parse_macro_input, Attribute, Data, DeriveInput, Fields, Ident, Lit, Meta, Type,
 };
 
+/// Derives the `Fuzzable` trait for structs with named fields.
+/// 
+/// This procedural macro automatically generates fuzzing methods for each field
+/// in a struct, respecting field-level `#[fuzz]` attributes for customization.
+/// The generated implementation includes individual fuzzing methods for each field
+/// and a `fuzz_all()` method that fuzzes all non-skipped fields.
+/// 
+/// # Generated Methods
+/// 
+/// * `fuzz_{field_name}()` - Fuzz individual fields based on their attributes
+/// * `fuzz_all()` - Fuzz all fields that aren't marked with `#[fuzz(skip)]`
+/// 
+/// # Supported Field Types
+/// 
+/// * Numeric types: `u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`
+/// * String types: `String`
+/// * Vector types: `Vec<u8>` (for binary data)
+/// * Custom types that implement `FromStr`
+/// 
+/// # Attribute Configuration
+/// 
+/// See crate-level documentation for detailed attribute usage.
+/// 
+/// # Panics
+/// 
+/// Panics at compile time if applied to:
+/// * Enums or unions (only structs supported)
+/// * Structs without named fields (tuple structs not supported)
+/// 
+/// # Examples
+/// 
+/// ```rust,norun
+/// use hurtbreak_derive::Fuzzable;
+/// use hurtbreak_core::Fuzzable as FuzzableTrait;
+/// 
+/// #[derive(Fuzzable)]
+/// struct NetworkPacket {
+///     #[fuzz(range = "1..=65535")]
+///     port: u16,
+///     
+///     #[fuzz(max_len = 1024)]
+///     payload: Vec<u8>,
+///     
+///     #[fuzz(values = "[\"TCP\", \"UDP\", \"ICMP\"]")]
+///     protocol: String,
+/// }
+/// 
+/// let mut packet = NetworkPacket {
+///     port: 80,
+///     payload: vec![0x41, 0x42, 0x43],
+///     protocol: "TCP".to_string(),
+/// };
+/// 
+/// // Fuzz individual fields
+/// packet.fuzz_port();
+/// packet.fuzz_payload();
+/// 
+/// // Or fuzz all fields at once
+/// packet.fuzz_all();
+/// ```
 #[proc_macro_derive(Fuzzable, attributes(fuzz))]
 pub fn derive_fuzzable(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -24,6 +121,19 @@ pub fn derive_fuzzable(input: TokenStream) -> TokenStream {
     }
 }
 
+/// Generates the complete fuzzing implementation for a struct.
+/// 
+/// Creates individual fuzzing methods for each field and a `fuzz_all()` method
+/// that calls all field-specific fuzzing methods except those marked with `#[fuzz(skip)]`.
+/// 
+/// # Arguments
+/// 
+/// * `struct_name` - The identifier of the struct being processed
+/// * `fields` - The named fields of the struct
+/// 
+/// # Returns
+/// 
+/// A `TokenStream` containing the complete `impl` block with fuzzing methods
 fn generate_fuzz_impl(
     struct_name: &Ident,
     fields: &syn::FieldsNamed,
@@ -85,6 +195,90 @@ fn generate_fuzz_impl(
         }
     }).collect();
 
+    let field_info_items: Vec<_> = fields.named.iter().map(|field| {
+        let field_name = field.ident.as_ref().unwrap();
+        let field_type = &field.ty;
+        let fuzz_config = parse_fuzz_attributes(&field.attrs);
+        
+        let name = field_name.to_string();
+        let type_name = quote!(#field_type).to_string();
+        let can_be_fixed = !matches!(fuzz_config, FuzzConfig::Skip);
+        let description = format!("Field {} of type {}", name, type_name);
+        
+        quote! {
+            crate::FieldInfo {
+                name: #name.to_string(),
+                type_name: #type_name.to_string(),
+                can_be_fixed: #can_be_fixed,
+                description: #description.to_string(),
+            }
+        }
+    }).collect();
+
+    let set_field_arms: Vec<_> = fields.named.iter().map(|field| {
+        let field_name = field.ident.as_ref().unwrap();
+        let field_name_str = field_name.to_string();
+        let field_type = &field.ty;
+        
+        // Handle Vec<u8> specially
+        if let syn::Type::Path(type_path) = field_type {
+            if type_path.path.segments.len() == 1 && type_path.path.segments[0].ident == "Vec" {
+                return quote! {
+                    #field_name_str => {
+                        // Handle Vec<u8> specially - parse as hex string or comma-separated bytes
+                        if value.starts_with("0x") || value.chars().all(|c| c.is_ascii_hexdigit()) {
+                            // Parse as hex string
+                            let hex_str = value.trim_start_matches("0x");
+                            if hex_str.len() % 2 == 0 {
+                                let mut bytes = Vec::new();
+                                for chunk in hex_str.as_bytes().chunks(2) {
+                                    if let Ok(chunk_str) = std::str::from_utf8(chunk) {
+                                        if let Ok(byte) = u8::from_str_radix(chunk_str, 16) {
+                                            bytes.push(byte);
+                                        } else {
+                                            return Err(format!("Invalid hex byte: {}", chunk_str));
+                                        }
+                                    }
+                                }
+                                self.#field_name = bytes;
+                                Ok(())
+                            } else {
+                                Err("Hex string must have even length".to_string())
+                            }
+                        } else if value.contains(',') {
+                            // Parse as comma-separated bytes
+                            let mut bytes = Vec::new();
+                            for part in value.split(',') {
+                                match part.trim().parse::<u8>() {
+                                    Ok(byte) => bytes.push(byte),
+                                    Err(_) => return Err(format!("Invalid byte: {}", part)),
+                                }
+                            }
+                            self.#field_name = bytes;
+                            Ok(())
+                        } else {
+                            // Try to parse as UTF-8 string
+                            self.#field_name = value.as_bytes().to_vec();
+                            Ok(())
+                        }
+                    }
+                };
+            }
+        }
+        
+        quote! {
+            #field_name_str => {
+                match value.parse::<#field_type>() {
+                    Ok(parsed_value) => {
+                        self.#field_name = parsed_value;
+                        Ok(())
+                    }
+                    Err(_) => Err(format!("Failed to parse '{}' as {}", value, stringify!(#field_type)))
+                }
+            }
+        }
+    }).collect();
+
     quote! {
         impl #struct_name {
             #(#fuzz_methods)*
@@ -94,6 +288,24 @@ fn generate_fuzz_impl(
             }
         }
         
+        impl crate::FieldIntrospection for #struct_name {
+            fn get_field_info() -> Vec<crate::FieldInfo> {
+                vec![#(#field_info_items),*]
+            }
+        }
+        
+        impl crate::Fuzzable for #struct_name {
+            fn fuzz(&mut self) {
+                self.fuzz_all();
+            }
+            
+            fn set_field(&mut self, field_name: &str, value: &str) -> Result<(), String> {
+                match field_name {
+                    #(#set_field_arms)*
+                    _ => Err(format!("Unknown field: {}", field_name))
+                }
+            }
+        }
     }
 }
 
@@ -198,13 +410,61 @@ fn generate_default_fuzz_method(
     }
 }
 
+/// Configuration options for field-level fuzzing behavior.
+/// 
+/// This enum represents the different fuzzing strategies that can be applied
+/// to struct fields through `#[fuzz]` attributes. Each variant corresponds to
+/// a specific fuzzing approach optimized for different field types and use cases.
+/// 
+/// # Variants
+/// 
+/// * `Skip` - Field should not be fuzzed (keeps original value)
+/// * `Range` - Numeric fields fuzzed within specified min/max bounds  
+/// * `MaxLen` - Vector fields fuzzed with random data up to max length
+/// * `Values` - Field fuzzed by selecting from predefined value set
+/// * `Pattern` - Field fuzzed using structured pattern generation
+/// * `Default` - Use default fuzzing strategy based on field type
+/// 
+/// # Examples
+/// 
+/// ```rust,norun
+/// // Skip fuzzing this field
+/// #[fuzz(skip)]
+/// sync_field: u8,
+/// 
+/// // Fuzz within numeric range
+/// #[fuzz(range = "1..=1000")]
+/// port: u16,
+/// 
+/// // Fuzz vector with max length
+/// #[fuzz(max_len = 512)]
+/// data: Vec<u8>,
+/// 
+/// // Choose from predefined values
+/// #[fuzz(values = "[\"GET\", \"POST\", \"PUT\"]")]
+/// method: String,
+/// 
+/// // Generate structured pattern
+/// #[fuzz(pattern = "u8.u8.u8.u8", delimiter = ".")]
+/// ip_addr: String,
+/// 
+/// // Use default fuzzing
+/// #[fuzz]
+/// generic_field: u32,
+/// ```
 #[derive(Debug)]
 enum FuzzConfig {
+    /// Skip fuzzing this field entirely
     Skip,
+    /// Fuzz numeric field within the specified range [min, max]
     Range { min: i64, max: i64 },
+    /// Fuzz Vec<u8> with random data up to max_len bytes
     MaxLen { max_len: usize },
+    /// Choose randomly from the provided list of string values
     Values { values: Vec<String> },
+    /// Generate structured data using pattern with delimiter
     Pattern { pattern: String, delimiter: String },
+    /// Use default fuzzing behavior based on field type
     Default,
 }
 

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "hurtbreak-core",
-    "hurtbreak-derive"
+    "hurtbreak-derive",
+    "hurtbreak-cli"
 ]
 resolver = "2"
