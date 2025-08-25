@@ -3,8 +3,7 @@ A protocol-agnostic fuzzer.
 
 ## Features
 - Highly polymorphic in design- Can scaffold out a fuzzer or bruteforcer for essentially anything with identical top-level logic.
-- Primarily a tech demo currently- Documentation and more polished code forthcoming.
-- Designed to require as few dependencies as possible so this code can be served anywhere
+- Designed to require as few dependencies as possible so this code can be served anywhere, feature flags can be used to limit the libdeps.
 
 ## CLI Usage
 
