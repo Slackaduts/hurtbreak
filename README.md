@@ -6,10 +6,25 @@ A protocol-agnostic fuzzer.
 - Primarily a tech demo currently- Documentation and more polished code forthcoming.
 - Designed to require as few dependencies as possible so this code can be served anywhere
 
+## CLI Usage
+
+```bash
+# Basic TCP fuzzing with 100 iterations
+hurtbreak launch tcp --max-tries 100
+
+# TCP fuzzing with fixed port
+hurtbreak launch tcp --field port=8080 --max-tries 50
+
+# USB fuzzing with device address and output to JSON
+hurtbreak launch usb --field device_address=1 --max-tries 200 --output results.json
+
+# Multiple field specifications
+hurtbreak launch tcp --field port=443 --field host=192.168.1.1 --max-tries 1000
+```
+
 ## Immediate plans
 - Add support for hardware RNG
 - Stop using fastrand crate and make the randomization itself modular
-- A CLI
 
 
 ## Future plans
