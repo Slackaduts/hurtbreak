@@ -9,14 +9,14 @@ path = "src/main.rs"
 
 [features]
 default = ["tcpip", "usb", "async"]
-tcpip = ["socket2"]
-usb = ["libusb1-sys", "rusb"]
+tcpip = ["socket2", "bitflags"]
+usb = ["libusb1-sys", "rusb", "bitflags"]
 async = ["tokio", "async-trait"]
 
 [dependencies]
 hurtbreak-derive = { path = "../hurtbreak-derive" }
 fastrand = "2.0"
-bitflags = "2.6"
+bitflags = { version = "2.6", optional = true }
 anyhow = "1.0"
 tokio = { version = "1.0", features = ["net", "time", "rt", "rt-multi-thread", "io-util", "macros"], optional = true }
 socket2 = { version = "0.5", optional = true }
