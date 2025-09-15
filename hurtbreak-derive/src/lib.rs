@@ -156,8 +156,9 @@ fn generate_fuzz_impl(
                 let method_name = Ident::new(&format!("fuzz_{}", field_name), Span::call_site());
                 quote! {
                     pub fn #method_name(&mut self) {
-                        let len = fastrand::usize(0..=#max_len);
-                        self.#field_name = (0..len).map(|_| fastrand::u8(..)).collect();
+                        use crate::random::FuzzableNumber;
+                        let len = <usize as crate::random::FuzzableNumber>::fuzz(0, #max_len);
+                        self.#field_name = (0..len).map(|_| <u8 as crate::random::FuzzableNumber>::fuzz(<u8 as crate::random::FuzzableNumber>::min(), <u8 as crate::random::FuzzableNumber>::max())).collect();
                     }
                 }
             }
@@ -165,8 +166,9 @@ fn generate_fuzz_impl(
                 let method_name = Ident::new(&format!("fuzz_{}", field_name), Span::call_site());
                 quote! {
                     pub fn #method_name(&mut self) {
+                        use crate::random::{FuzzerRNG, DEFAULT_RNG};
                         let options = vec![#(#values.to_string()),*];
-                        let selected = fastrand::choice(&options).unwrap().clone();
+                        let selected = crate::random::DEFAULT_RNG.choice(&options).unwrap().clone();
                         self.#field_name = selected.parse().expect("Failed to parse fuzzed value");
                     }
                 }
@@ -320,28 +322,64 @@ fn generate_range_fuzz_method(
         Type::Path(type_path) if type_path.path.is_ident("u8") => {
             quote! {
                 pub fn #method_name(&mut self) {
-                    self.#field_name = fastrand::u8(#min as u8..=#max as u8);
+                    use crate::random::FuzzableNumber;
+                    self.#field_name = <u8 as crate::random::FuzzableNumber>::fuzz(#min as u8, #max as u8);
                 }
             }
         }
         Type::Path(type_path) if type_path.path.is_ident("u16") => {
             quote! {
                 pub fn #method_name(&mut self) {
-                    self.#field_name = fastrand::u16(#min as u16..=#max as u16);
+                    use crate::random::FuzzableNumber;
+                    self.#field_name = <u16 as crate::random::FuzzableNumber>::fuzz(#min as u16, #max as u16);
                 }
             }
         }
         Type::Path(type_path) if type_path.path.is_ident("u32") => {
             quote! {
                 pub fn #method_name(&mut self) {
-                    self.#field_name = fastrand::u32(#min as u32..=#max as u32);
+                    use crate::random::FuzzableNumber;
+                    self.#field_name = <u32 as crate::random::FuzzableNumber>::fuzz(#min as u32, #max as u32);
                 }
             }
         }
         Type::Path(type_path) if type_path.path.is_ident("u64") => {
             quote! {
                 pub fn #method_name(&mut self) {
-                    self.#field_name = fastrand::u64(#min as u64..=#max as u64);
+                    use crate::random::FuzzableNumber;
+                    self.#field_name = <u64 as crate::random::FuzzableNumber>::fuzz(#min as u64, #max as u64);
+                }
+            }
+        }
+        Type::Path(type_path) if type_path.path.is_ident("i8") => {
+            quote! {
+                pub fn #method_name(&mut self) {
+                    use crate::random::FuzzableNumber;
+                    self.#field_name = <i8 as crate::random::FuzzableNumber>::fuzz(#min as i8, #max as i8);
+                }
+            }
+        }
+        Type::Path(type_path) if type_path.path.is_ident("i16") => {
+            quote! {
+                pub fn #method_name(&mut self) {
+                    use crate::random::FuzzableNumber;
+                    self.#field_name = <i16 as crate::random::FuzzableNumber>::fuzz(#min as i16, #max as i16);
+                }
+            }
+        }
+        Type::Path(type_path) if type_path.path.is_ident("i32") => {
+            quote! {
+                pub fn #method_name(&mut self) {
+                    use crate::random::FuzzableNumber;
+                    self.#field_name = <i32 as crate::random::FuzzableNumber>::fuzz(#min as i32, #max as i32);
+                }
+            }
+        }
+        Type::Path(type_path) if type_path.path.is_ident("i64") => {
+            quote! {
+                pub fn #method_name(&mut self) {
+                    use crate::random::FuzzableNumber;
+                    self.#field_name = <i64 as crate::random::FuzzableNumber>::fuzz(#min as i64, #max as i64);
                 }
             }
         }
@@ -365,37 +403,74 @@ fn generate_default_fuzz_method(
         Type::Path(type_path) if type_path.path.is_ident("u8") => {
             quote! {
                 pub fn #method_name(&mut self) {
-                    self.#field_name = fastrand::u8(..);
+                    use crate::random::FuzzableNumber;
+                    self.#field_name = <u8 as crate::random::FuzzableNumber>::fuzz(<u8 as crate::random::FuzzableNumber>::min(), <u8 as crate::random::FuzzableNumber>::max());
                 }
             }
         }
         Type::Path(type_path) if type_path.path.is_ident("u16") => {
             quote! {
                 pub fn #method_name(&mut self) {
-                    self.#field_name = fastrand::u16(..);
+                    use crate::random::FuzzableNumber;
+                    self.#field_name = <u16 as crate::random::FuzzableNumber>::fuzz(<u16 as crate::random::FuzzableNumber>::min(), <u16 as crate::random::FuzzableNumber>::max());
                 }
             }
         }
         Type::Path(type_path) if type_path.path.is_ident("u32") => {
             quote! {
                 pub fn #method_name(&mut self) {
-                    self.#field_name = fastrand::u32(..);
+                    use crate::random::FuzzableNumber;
+                    self.#field_name = <u32 as crate::random::FuzzableNumber>::fuzz(<u32 as crate::random::FuzzableNumber>::min(), <u32 as crate::random::FuzzableNumber>::max());
                 }
             }
         }
         Type::Path(type_path) if type_path.path.is_ident("u64") => {
             quote! {
                 pub fn #method_name(&mut self) {
-                    self.#field_name = fastrand::u64(..);
+                    use crate::random::FuzzableNumber;
+                    self.#field_name = <u64 as crate::random::FuzzableNumber>::fuzz(<u64 as crate::random::FuzzableNumber>::min(), <u64 as crate::random::FuzzableNumber>::max());
+                }
+            }
+        }
+        Type::Path(type_path) if type_path.path.is_ident("i8") => {
+            quote! {
+                pub fn #method_name(&mut self) {
+                    use crate::random::FuzzableNumber;
+                    self.#field_name = <i8 as crate::random::FuzzableNumber>::fuzz(<i8 as crate::random::FuzzableNumber>::min(), <i8 as crate::random::FuzzableNumber>::max());
+                }
+            }
+        }
+        Type::Path(type_path) if type_path.path.is_ident("i16") => {
+            quote! {
+                pub fn #method_name(&mut self) {
+                    use crate::random::FuzzableNumber;
+                    self.#field_name = <i16 as crate::random::FuzzableNumber>::fuzz(<i16 as crate::random::FuzzableNumber>::min(), <i16 as crate::random::FuzzableNumber>::max());
+                }
+            }
+        }
+        Type::Path(type_path) if type_path.path.is_ident("i32") => {
+            quote! {
+                pub fn #method_name(&mut self) {
+                    use crate::random::FuzzableNumber;
+                    self.#field_name = <i32 as crate::random::FuzzableNumber>::fuzz(<i32 as crate::random::FuzzableNumber>::min(), <i32 as crate::random::FuzzableNumber>::max());
+                }
+            }
+        }
+        Type::Path(type_path) if type_path.path.is_ident("i64") => {
+            quote! {
+                pub fn #method_name(&mut self) {
+                    use crate::random::FuzzableNumber;
+                    self.#field_name = <i64 as crate::random::FuzzableNumber>::fuzz(<i64 as crate::random::FuzzableNumber>::min(), <i64 as crate::random::FuzzableNumber>::max());
                 }
             }
         }
         Type::Path(type_path) if type_path.path.is_ident("String") => {
             quote! {
                 pub fn #method_name(&mut self) {
-                    let len = fastrand::usize(1..=100);
+                    use crate::random::{FuzzableNumber, FuzzerRNG, DEFAULT_RNG};
+                    let len = <usize as crate::random::FuzzableNumber>::fuzz(1, 100);
                     self.#field_name = (0..len)
-                        .map(|_| fastrand::alphabetic() as char)
+                        .map(|_| crate::random::DEFAULT_RNG.alphabetic() as char)
                         .collect();
                 }
             }
@@ -578,14 +653,14 @@ fn generate_pattern_fuzz_method(
     
     let fuzz_values: Vec<proc_macro2::TokenStream> = field_types.iter().map(|field_type| {
         match *field_type {
-            "u8" => quote! { fastrand::u8(..) },
-            "u16" => quote! { fastrand::u16(..) },
-            "u32" => quote! { fastrand::u32(..) },
-            "u64" => quote! { fastrand::u64(..) },
-            "i8" => quote! { fastrand::i8(..) },
-            "i16" => quote! { fastrand::i16(..) },
-            "i32" => quote! { fastrand::i32(..) },
-            "i64" => quote! { fastrand::i64(..) },
+            "u8" => quote! { <u8 as crate::random::FuzzableNumber>::fuzz(<u8 as crate::random::FuzzableNumber>::min(), <u8 as crate::random::FuzzableNumber>::max()) },
+            "u16" => quote! { <u16 as crate::random::FuzzableNumber>::fuzz(<u16 as crate::random::FuzzableNumber>::min(), <u16 as crate::random::FuzzableNumber>::max()) },
+            "u32" => quote! { <u32 as crate::random::FuzzableNumber>::fuzz(<u32 as crate::random::FuzzableNumber>::min(), <u32 as crate::random::FuzzableNumber>::max()) },
+            "u64" => quote! { <u64 as crate::random::FuzzableNumber>::fuzz(<u64 as crate::random::FuzzableNumber>::min(), <u64 as crate::random::FuzzableNumber>::max()) },
+            "i8" => quote! { <i8 as crate::random::FuzzableNumber>::fuzz(<i8 as crate::random::FuzzableNumber>::min(), <i8 as crate::random::FuzzableNumber>::max()) },
+            "i16" => quote! { <i16 as crate::random::FuzzableNumber>::fuzz(<i16 as crate::random::FuzzableNumber>::min(), <i16 as crate::random::FuzzableNumber>::max()) },
+            "i32" => quote! { <i32 as crate::random::FuzzableNumber>::fuzz(<i32 as crate::random::FuzzableNumber>::min(), <i32 as crate::random::FuzzableNumber>::max()) },
+            "i64" => quote! { <i64 as crate::random::FuzzableNumber>::fuzz(<i64 as crate::random::FuzzableNumber>::min(), <i64 as crate::random::FuzzableNumber>::max()) },
             _ => quote! { 0 }, // fallback for unknown types
         }
     }).collect();
@@ -603,6 +678,7 @@ fn generate_pattern_fuzz_method(
     
     quote! {
         pub fn #method_name(&mut self) {
+            use crate::random::FuzzableNumber;
             let values = [#(#fuzz_values),*];
             let formatted = format!(#format_string, #(#indices),*);
             self.#field_name = formatted.parse().expect("Failed to parse fuzzed field value");
