@@ -22,9 +22,7 @@ hurtbreak launch tcp --field port=443 --field host=192.168.1.1 --max-tries 1000
 ```
 
 ## Immediate plans
-- Fuzzable strings with patterned insertions for fuzzing malformed data to defeat weak security checks
 - Add support for hardware (Q)RNG
-- Stop using fastrand crate and make the randomization itself modular
 - Concurrent requests leveraging our AsyncAttack struct
 
 ## Future plans
