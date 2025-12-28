@@ -1,3 +1,4 @@
 /target
+/*/src/target/*
 *.lock
 Cargo.lock
