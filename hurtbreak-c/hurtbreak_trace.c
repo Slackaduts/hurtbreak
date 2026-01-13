@@ -170,6 +170,7 @@ int hurt_add_field(hurt_writer_t *w, uint8_t id, const uint8_t *data, size_t len
     if (w->field_count == 255) return HURT_ERR_LIMIT;
     int rc;
     if ((rc = put_u8(w, id))) return rc;
+    if ((rc = put_varint(w, (uint64_t)len))) return rc;
     if ((rc = put_bytes(w, data, len))) return rc;
     w->field_count++;
     return HURT_OK;

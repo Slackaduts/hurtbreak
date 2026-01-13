@@ -19,7 +19,7 @@ int main(void) {
 
     hurt_write_goal_reached(&w, 42);
 
-    FILE *f = fopen("test.hurt", "wb");
+    FILE *f = fopen("c_test.hurt", "wb");
     if (!f) {
         perror("fopen");
         return 1;

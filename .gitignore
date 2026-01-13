@@ -2,3 +2,21 @@
 /*/src/target/*
 *.lock
 Cargo.lock
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.mypy_cache/
+.ruff_cache/
+
+# uv / venv
+.venv/
+.python-version
+
+# Distribution
+dist/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/

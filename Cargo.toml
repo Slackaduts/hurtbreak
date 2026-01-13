@@ -2,6 +2,7 @@
 members = [
     "hurtbreak-core",
     "hurtbreak-derive",
-    "hurtbreak-cli"
-]
+    "hurtbreak-cli",
+    "hurtbreak-trace",
+    ]
 resolver = "2"
