@@ -1,170 +1,111 @@
-use crate::api::{Endian, TraceError, crc8};
-use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
-use std::io::Read;
+use embedded_io::Read;
+use crate::api::{Header, RecordType, TraceError, MAGIC, VERSION, crc8_smbus, crc8_continue, decode_varint};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TraceHeader {
-    pub version: u8,
-    pub mode: u8,
-    pub endian: Endian,
-    pub start_time: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Field {
-    pub id: u8,
-    pub data: Vec<u8>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Record {
-    SessionStart { seed: u64, tripwire_id: u64 },
-    Step { seed: u64, fields: Vec<Field> },
-    GoalReached { goal_id: u64 },
-    FailedStep { seed: u64 },
-    Unknown { rec_type: u8, payload: Vec<u8> },
-}
-
-fn read_varint<R: Read>(r: &mut R) -> Result<(u64, Vec<u8>), TraceError> {
-    let mut val = 0u64;
-    let mut shift = 0;
-    let mut bytes = Vec::new();
-    loop {
-        let b = r.read_u8()?;
-        bytes.push(b);
-        val |= ((b & 0x7F) as u64) << shift;
-        shift += 7;
-        if b & 0x80 == 0 {
-            break;
+fn read_exact<R: Read>(r: &mut R, buf: &mut [u8]) -> Result<(), TraceError<R::Error>> {
+    let mut read = 0;
+    while read < buf.len() {
+        let n = r.read(&mut buf[read..]).map_err(TraceError::Io)?;
+        if n == 0 {
+            return Err(TraceError::Truncated);
         }
+        read += n;
     }
-    Ok((val, bytes))
+    Ok(())
 }
 
-fn read_u64<R: Read>(r: &mut R, endian: Endian) -> Result<u64, TraceError> {
-    Ok(match endian {
-        Endian::Little => r.read_u64::<LittleEndian>()?,
-        Endian::Big => r.read_u64::<BigEndian>()?,
-    })
+pub struct Record<'a> {
+    pub rec_type: RecordType,
+    pub payload: &'a [u8],
 }
 
-fn read_i64<R: Read>(r: &mut R, endian: Endian) -> Result<i64, TraceError> {
-    Ok(match endian {
-        Endian::Little => r.read_i64::<LittleEndian>()?,
-        Endian::Big => r.read_i64::<BigEndian>()?,
-    })
-}
-
-pub fn read_header<R: Read>(r: &mut R) -> Result<TraceHeader, TraceError> {
-    let mut magic = [0u8; 4];
-    r.read_exact(&mut magic)?;
-    if &magic != b"HURT" {
-        return Err(TraceError::InvalidMagic);
-    }
-
-    let version = r.read_u8()?;
-    let mode = r.read_u8()?;
-    let endian_byte = r.read_u8()?;
-    let endian = match endian_byte {
-        0x00 => Endian::Little,
-        0x01 => Endian::Big,
-        _ => return Err(TraceError::InvalidEndian(endian_byte)),
-    };
-    let start_time = read_i64(r, endian)?;
-
-    Ok(TraceHeader {
-        version,
-        mode,
-        endian,
-        start_time,
-    })
-}
-
-pub fn read_record<R: Read>(r: &mut R, endian: Endian) -> Result<Option<Record>, TraceError> {
-    let rec_type = match r.read_u8() {
-        Ok(b) => b,
-        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
-        Err(e) => return Err(e.into()),
-    };
-
-    let mut record_bytes = vec![rec_type];
-    let (length, len_bytes) = read_varint(r)?;
-    record_bytes.extend(&len_bytes);
-
-    let payload_len = length.saturating_sub(1) as usize;
-    let mut payload = vec![0u8; payload_len];
-    r.read_exact(&mut payload)?;
-    record_bytes.extend(&payload);
-
-    let crc = r.read_u8()?;
-    let expected = crc8(&record_bytes);
-    if expected != crc {
-        return Err(TraceError::CrcMismatch {
-            expected,
-            actual: crc,
-        });
-    }
-
-    let record = parse_payload(rec_type, &payload, endian)?;
-    Ok(Some(record))
-}
-
-fn parse_payload(rec_type: u8, payload: &[u8], endian: Endian) -> Result<Record, TraceError> {
-    let mut cursor = std::io::Cursor::new(payload);
-    match rec_type {
-        0x01 => {
-            let seed = read_u64(&mut cursor, endian)?;
-            let (tripwire_id, _) = read_varint(&mut cursor)?;
-            Ok(Record::SessionStart { seed, tripwire_id })
-        }
-        0x02 => {
-            let seed = read_u64(&mut cursor, endian)?;
-            let field_count = cursor.read_u8()?;
-            let mut fields = Vec::with_capacity(field_count as usize);
-            for _ in 0..field_count {
-                let id = cursor.read_u8()?;
-                let (len, _) = read_varint(&mut cursor)?;
-                let mut data = vec![0u8; len as usize];
-                cursor.read_exact(&mut data)?;
-                fields.push(Field { id, data });
-            }
-            Ok(Record::Step { seed, fields })
-        }
-        0x03 => {
-            let (goal_id, _) = read_varint(&mut cursor)?;
-            Ok(Record::GoalReached { goal_id })
-        }
-        0x04 => {
-            let seed = read_u64(&mut cursor, endian)?;
-            Ok(Record::FailedStep { seed })
-        }
-        _ => Ok(Record::Unknown {
-            rec_type,
-            payload: payload.to_vec(),
-        }),
-    }
-}
-
-pub struct TraceReader<R: Read> {
-    reader: R,
-    pub header: TraceHeader,
+pub struct TraceReader<R> {
+    inner: R,
+    header: Header,
 }
 
 impl<R: Read> TraceReader<R> {
-    pub fn new(mut reader: R) -> Result<Self, TraceError> {
-        let header = read_header(&mut reader)?;
-        Ok(Self { reader, header })
-    }
-}
+    pub fn new(mut reader: R) -> Result<Self, TraceError<R::Error>> {
+        let mut header_buf = [0u8; 15];
+        read_exact(&mut reader, &mut header_buf)?;
 
-impl<R: Read> Iterator for TraceReader<R> {
-    type Item = Result<Record, TraceError>;
+        let header: Header = *bytemuck::from_bytes(&header_buf);
 
-    fn next(&mut self) -> Option<Self::Item> {
-        match read_record(&mut self.reader, self.header.endian) {
-            Ok(Some(record)) => Some(Ok(record)),
-            Ok(None) => None,
-            Err(e) => Some(Err(e)),
+        if header.magic != MAGIC {
+            return Err(TraceError::BadMagic);
         }
+        if header.version != VERSION {
+            return Err(TraceError::UnsupportedVersion(header.version));
+        }
+
+        Ok(Self { inner: reader, header })
+    }
+
+    pub fn header(&self) -> &Header {
+        &self.header
+    }
+
+    pub fn read_record<'a>(
+        &mut self,
+        buf: &'a mut [u8],
+    ) -> Result<Option<Record<'a>>, TraceError<R::Error>> {
+        let mut type_buf = [0u8; 1];
+        match self.inner.read(&mut type_buf) {
+            Ok(0) => return Ok(None),
+            Ok(_) => {}
+            Err(e) => return Err(TraceError::Io(e)),
+        }
+
+        let rec_type_byte = type_buf[0];
+        let rec_type = RecordType::from_u8(rec_type_byte)
+            .ok_or(TraceError::UnknownRecordType(rec_type_byte))?;
+
+        let mut varint_buf = [0u8; 10];
+        let mut varint_len = 0;
+        loop {
+            let mut b = [0u8; 1];
+            read_exact(&mut self.inner, &mut b)?;
+            varint_buf[varint_len] = b[0];
+            varint_len += 1;
+            if b[0] & 0x80 == 0 {
+                break;
+            }
+            if varint_len >= 10 {
+                return Err(TraceError::VarintOverflow);
+            }
+        }
+
+        let (payload_len, _) = decode_varint(&varint_buf[..varint_len])
+            .ok_or(TraceError::VarintOverflow)?;
+
+        if payload_len > buf.len() {
+            return Err(TraceError::Truncated);
+        }
+
+        let payload_buf = &mut buf[..payload_len];
+        read_exact(&mut self.inner, payload_buf)?;
+
+        let mut crc_buf = [0u8; 1];
+        read_exact(&mut self.inner, &mut crc_buf)?;
+        let stored_crc = crc_buf[0];
+
+        let mut computed_crc = crc8_smbus(&[rec_type_byte]);
+        computed_crc = crc8_continue(computed_crc, &varint_buf[..varint_len]);
+        computed_crc = crc8_continue(computed_crc, payload_buf);
+
+        if computed_crc != stored_crc {
+            return Err(TraceError::CrcMismatch {
+                expected: stored_crc,
+                got: computed_crc,
+            });
+        }
+
+        Ok(Some(Record {
+            rec_type,
+            payload: payload_buf,
+        }))
+    }
+
+    pub fn into_inner(self) -> R {
+        self.inner
     }
 }

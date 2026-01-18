@@ -1,0 +1,42 @@
+{
+	"nodes":[
+		{"id":"a91517218a94d5a4","type":"group","x":-900,"y":280,"width":1412,"height":676,"label":"Mutation Interface"},
+		{"id":"27a0700c1c869712","type":"group","x":-900,"y":-1131,"width":1298,"height":444,"label":"Core Logic"},
+		{"id":"a600f5671fc0350b","type":"text","text":"### Trait impl via [[Response]]","x":-134,"y":-620,"width":293,"height":50,"color":"6"},
+		{"id":"36f681abf9b7b82a","type":"text","text":"### `proc-macro` provides [[hurtbreak-cli|CLI]] implementation","x":-500,"y":492,"width":472,"height":50,"color":"6"},
+		{"id":"de300e38d4b86bd0","type":"text","text":"### [[hurtbreak-derive]] provides mutation methods","x":-8,"y":492,"width":500,"height":50,"color":"6"},
+		{"id":"55ef79ae288674f6","type":"text","text":"## Exposed to [[hurtbreak-c]] ","x":-620,"y":592,"width":209,"height":80,"color":"1"},
+		{"id":"8d76204e642f3e42","type":"text","text":"### Methods in [[hurtbreak-core]] and [[Attack|Attack (trait)]] are provided to the end user, intaking the struct\n- This would be a generic of [[Fuzzable]]","x":-133,"y":672,"width":375,"height":180,"color":"6"},
+		{"id":"0f3afeb06026cb8c","type":"text","text":"## Exposed to [[hurtbreak-py]] ","x":-620,"y":852,"width":209,"height":84,"color":"4"},
+		{"id":"fee1e9e9104ba39c","type":"text","text":"#### Define data structure in C instead","x":-880,"y":300,"width":290,"height":75,"color":"1"},
+		{"id":"9ec44d291b57eb55","type":"text","text":"### Trait impl via [[Fuzzable]]","x":-145,"y":312,"width":275,"height":50,"color":"6"},
+		{"id":"0f63a303c51131df","type":"text","text":"# End User Tool","x":-112,"y":-320,"width":250,"height":60,"color":"6"},
+		{"id":"3de4fd51f49705c4","type":"text","text":"### Trait impl for attack flow via [[Tripwire]]","x":-112,"y":-780,"width":250,"height":73,"color":"6"},
+		{"id":"e91b7be51b97fba7","type":"text","text":"## Exposed to [[hurtbreak-py]] ","x":-880,"y":-903,"width":209,"height":84,"color":"4"},
+		{"id":"e18c6523559e1c01","type":"text","text":"### Input is mutated using [[Fuzzable]] on a per field basis guided by [[Tripwire]]","x":-540,"y":-971,"width":303,"height":120,"color":"6"},
+		{"id":"fc56b490c83bfb07","type":"text","text":"##### Every mutation produces an [[RNG]] seed that can reproduce the mutation. When the next step in the attack flow (via [[Tripwire]]) is reached, the seed of the generation is added onto the previous step's seed.\n- For example, if the attack is seed `ABC`, `DEF`, `GHI`, the output seed in logs would be `ABC_DEF_GHI`.","x":-102,"y":-1111,"width":480,"height":205,"color":"6"},
+		{"id":"78525f2dde6d03d8","type":"text","text":"## Exposed to [[hurtbreak-c]] ","x":-880,"y":-1008,"width":209,"height":80,"color":"1"},
+		{"id":"e4df4bfb674531b0","type":"file","file":"hurtbreak-trace.md","x":840,"y":-903,"width":640,"height":515,"color":"6"}
+	],
+	"edges":[
+		{"id":"fa3892839128e77b","fromNode":"0f63a303c51131df","fromSide":"bottom","toNode":"9ec44d291b57eb55","toSide":"top","color":"6","label":"Rust workflow:\nEnd user makes the struct via the Fuzzable trait, specifying how the data is mutated in code"},
+		{"id":"4dc05784910dbd2c","fromNode":"9ec44d291b57eb55","fromSide":"bottom","toNode":"de300e38d4b86bd0","toSide":"top","color":"6"},
+		{"id":"2359a31120cc4b89","fromNode":"9ec44d291b57eb55","fromSide":"bottom","toNode":"36f681abf9b7b82a","toSide":"top","color":"6"},
+		{"id":"09fcd7f67d5860fb","fromNode":"36f681abf9b7b82a","fromSide":"bottom","toNode":"8d76204e642f3e42","toSide":"top","color":"6"},
+		{"id":"af991d65f363893f","fromNode":"de300e38d4b86bd0","fromSide":"bottom","toNode":"8d76204e642f3e42","toSide":"top","color":"6"},
+		{"id":"5b35228be72096f0","fromNode":"8d76204e642f3e42","fromSide":"left","toNode":"0f3afeb06026cb8c","toSide":"right","color":"4","label":"Top-level orchestration"},
+		{"id":"ee22eff81caf4251","fromNode":"8d76204e642f3e42","fromSide":"left","toNode":"55ef79ae288674f6","toSide":"right","color":"1","label":"Embedded applications"},
+		{"id":"289a0584bae82434","fromNode":"55ef79ae288674f6","fromSide":"left","toNode":"fee1e9e9104ba39c","toSide":"bottom","color":"1"},
+		{"id":"62dc877597a2114f","fromNode":"fee1e9e9104ba39c","fromSide":"right","toNode":"9ec44d291b57eb55","toSide":"left","color":"6","label":"Ingest into Rust lib via FFI"},
+		{"id":"38e116243c34ab3a","fromNode":"0f63a303c51131df","fromSide":"top","toNode":"a600f5671fc0350b","toSide":"bottom","color":"6","label":"End user models the response flow via the Response trait"},
+		{"id":"7f5175f671488ec7","fromNode":"a600f5671fc0350b","fromSide":"top","toNode":"3de4fd51f49705c4","toSide":"bottom","color":"6"},
+		{"id":"a790fab9d0fbc7d0","fromNode":"e18c6523559e1c01","fromSide":"left","toNode":"78525f2dde6d03d8","toSide":"right","color":"1"},
+		{"id":"b64bd44497ccd2cc","fromNode":"e18c6523559e1c01","fromSide":"left","toNode":"e91b7be51b97fba7","toSide":"right","color":"4"},
+		{"id":"6b304083febe3902","fromNode":"e18c6523559e1c01","fromSide":"right","toNode":"fc56b490c83bfb07","toSide":"left","color":"6"},
+		{"id":"8f12d488a49ec1a3","fromNode":"3de4fd51f49705c4","fromSide":"left","toNode":"e18c6523559e1c01","toSide":"bottom","color":"6","label":"Specific fields are mutated when specific response field criteria is met"},
+		{"id":"be9b802d5356c57f","fromNode":"fc56b490c83bfb07","fromSide":"bottom","toNode":"3de4fd51f49705c4","toSide":"top","color":"6","label":"If unsuccessful, we keep trying and mutating"},
+		{"id":"a45c81612485a5af","fromNode":"0f3afeb06026cb8c","fromSide":"left","toNode":"fee1e9e9104ba39c","toSide":"bottom","color":"1","label":"ctypes could also\ndo this"},
+		{"id":"77971e5a6e73dc14","fromNode":"fc56b490c83bfb07","fromSide":"right","toNode":"e4df4bfb674531b0","toSide":"top","label":"Trace appended to on every iteration"},
+		{"id":"473cd1beaac1ed2b","fromNode":"e4df4bfb674531b0","fromSide":"bottom","toNode":"0f63a303c51131df","toSide":"right","color":"6","label":"Replay via CLI"}
+	]
+}

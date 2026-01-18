@@ -1,11 +1,18 @@
 [package]
 name = "hurtbreak-trace"
+description = "Minimal binary trace format for fuzzing sessions"
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
+bytemuck = { version = "1.24.0", features = ["derive"] }
 byteorder = "1.5.0"
+embedded-io = "0.7.1"
 thiserror = "2.0.17"
 
 [lib]
 crate-type = ["lib"]
+
+[dev-dependencies]
+embedded-io = { version = "0.7.1", features = ["std"] }
